@@ -1,0 +1,9 @@
+filebeat.config:
+  modules:
+    path: /etc/filebeat/modules.d/*.yml
+
+setup.kibana.host: "http://kibana:5601"
+setup.dashboard.enabled: true
+
+output.elasticsearch:
+  hosts: ["http://es01:9200"]

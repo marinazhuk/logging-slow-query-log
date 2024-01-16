@@ -1,0 +1,2 @@
+http://localhost:8080/sleep?sec=0
+http://localhost:8080/sleep?sec=1

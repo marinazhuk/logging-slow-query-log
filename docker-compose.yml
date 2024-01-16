@@ -1,0 +1,128 @@
+version: "3.8"
+
+services:
+  mysqldb:
+    image: mysql:8.2.0
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_USER: admin
+      MYSQL_PASSWORD: admin
+      MYSQL_ROOT_PASSWORD: admin
+    volumes:
+      - "./mysql/scripts/schema.sql:/docker-entrypoint-initdb.d/1.sql"
+      - "./mysql/logs/slow:/var/log/mysql/slow/"
+    command: --slow_query_log=1 --long_query_time=10 --slow_query_log_file=/var/log/mysql/slow/slow.log
+
+  es01:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    ports:
+      - "9200:9200"
+    environment:
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      
+  kibana:
+    image: docker.elastic.co/kibana/kibana:${STACK_VERSION}
+    volumes:
+      - data_kibana:/usr/share/kibana/data
+    ports:
+      - "5601:5601"
+    environment:
+      - SERVERNAME=kibana
+      - ELASTICSEARCH_HOSTS=http://es01:9200
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -s -I http://localhost:5601 | grep -q 'HTTP/1.1 302 Found'",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 120
+    depends_on:
+      - es01
+
+  filebeat:
+    depends_on:
+      - es01
+    build:
+      context: filebeat
+      args:
+        STACK_VERSION: ${STACK_VERSION}
+    user: root
+    volumes:
+      - "./mysql/logs/slow:/usr/share/filebeat/mysql/"
+
+  mongo:
+    image: mongo:7.0
+    ports:
+      - "27017:27017"
+
+  graylog:
+    image: graylog/graylog:5.2.3
+    ports:
+      - "9000:9000"
+      - "12201:12201"
+      - "1514:1514"
+      - "5555:5555"
+      - "5044:5044"
+    environment:
+      - GRAYLOG_ROOT_PASSWORD_SHA2=8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918 # Password: admin
+      - GRAYLOG_HTTP_EXTERNAL_URI=http://127.0.0.1:9000/ #username 'admin' and password 'admin'
+      - GRAYLOG_PASSWORD_SECRET=somepasswordpepper
+      - GRAYLOG_ELASTICSEARCH_HOSTS=http://es01:9200
+    depends_on:
+      - mongo
+      - es01
+    links:
+      - mongo
+      - es01
+
+  filebeat-graylog:
+    depends_on:
+      - graylog
+    build:
+      context: filebeat
+      args:
+        STACK_VERSION: ${STACK_VERSION}
+    volumes:
+      - ./filebeat/filebeat_graylog.yml:/usr/share/filebeat/filebeat.yml
+      - "./mysql/logs/slow:/usr/share/filebeat/mysql/"
+    user: root
+    command: filebeat -strict.perms=false
+
+  web-mysql-app:
+    container_name: web-mysql-app
+    build: ./web-mysql-app
+    volumes:
+      - .m2:/root/.m2
+    environment:
+      - SPRING_DATASOURCE_DRIVER_CLASS_NAME=com.mysql.jdbc.Driver
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysqldb:3306/test
+      - SPRING_DATASOURCE_USERNAME=root
+      - SPRING_DATASOURCE_PASSWORD=admin
+    ports:
+      - "8080:8080"
+
+volumes:
+  data_es:
+    driver: local
+  data_kibana:
+    driver: local
+  data_filebeat:
+    driver: local
+
+networks:
+  default:
+    name: elastic
+    external: false

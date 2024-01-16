@@ -1,0 +1,6 @@
+filebeat.config:
+  modules:
+    path: /etc/filebeat/modules.d/*.yml
+
+output.logstash:
+  hosts: ["graylog:5044"]
